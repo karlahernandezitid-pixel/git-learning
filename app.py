@@ -8,6 +8,9 @@ IPAddress = socket.gethostbyname(hostaname)
 print(f"IP Address: {IPAddress} ")
 
 for i in range (10):
-    print(i not comimitted yet
+    print(i)
 
 
+numero_a = input("dame le primer numero")
+numero_b = input("dame le segundo numero")
+print(f"la suma es:{numero_a+numero_b}")
