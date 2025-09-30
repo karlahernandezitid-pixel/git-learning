@@ -1,5 +1,2 @@
 ﻿Serie,Port,Device,User,Password,Ip-domain
-SAL1833N23S,COM7,Router-Sucursal,supervisor,cisco,cisco.com
-SSI174803XJ,COM8,Switch-Core,root,cisco,cisco.lan
-PID214101AB,COM9,AP-Bodega,wifi-admin,cisco,cisco.local
-
+FTX144582PH,COM12,Router1,Cisco,Cisco,cisco.local

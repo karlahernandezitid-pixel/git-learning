@@ -4,154 +4,139 @@ import pandas as pd
 import os
 import re
 
-# 🔹 Limpiar pantalla según el SO
-def limpiar_consola():
+def limpiar_pantalla_consola():
     if os.name == 'nt':
         os.system('cls')
     else:
         os.system('clear')
 
-# 🔹 Enviar comando al router
-def ejecutar_comando(conexion, instruccion, pausa=1):
-    conexion.write((instruccion + "\r\n").encode())  # CRLF
-    time.sleep(pausa)
-    salida = conexion.read(conexion.in_waiting).decode(errors="ignore")
-    return salida
+def enviar_comando_al_equipo(puerto_serial, comando_para_enviar, retraso=1):
+    puerto_serial.write((comando_para_enviar + "\r\n").encode())
+    time.sleep(retraso)
+    respuesta_del_equipo = puerto_serial.read(puerto_serial.in_waiting).decode(errors="ignore")
+    return respuesta_del_equipo
 
-# 🔹 Obtener número de serie desde "show inventory"
-def buscar_serial(canal_serial):
-    ejecutar_comando(canal_serial, "terminal length 0")  # evitar paginación
-    respuesta_inv = ejecutar_comando(canal_serial, "show inventory", pausa=2)
-    hallazgo = re.search(r"SN:\s*([A-Z0-9]+)", respuesta_inv)
-    if hallazgo:
-        return hallazgo.group(1)
+def obtener_numero_de_serie(conexion_serial):
+    enviar_comando_al_equipo(conexion_serial, "terminal length 0")
+    salida_inventario = enviar_comando_al_equipo(conexion_serial, "show inventory", retraso=2)
+    coincidencia_serie = re.search(r"SN:\s*([A-Z0-9]+)", salida_inventario)
+    if coincidencia_serie:
+        return coincidencia_serie.group(1)
     return None
 
-# 🔹 Configuración de dispositivo
-def aplicar_config(puerto, alias, usuario, clave, dominio):
+def configurar_dispositivo_individual(puerto_com, nombre_host, nombre_usuario, clave_secreta, nombre_dominio):
     try:
-        canal = serial.Serial(puerto, baudrate=9600, timeout=1)
+        conexion_activa = serial.Serial(puerto_com, baudrate=9600, timeout=1)
         time.sleep(2)
-        print(f"\n🔗 Conectado al dispositivo en {puerto} ({alias})")
+        print(f"\n🔗 Intentando conexión en {puerto_com} ({nombre_host})")
 
-        num_serie = buscar_serial(canal)
-        if not num_serie:
-            print("⚠ No se pudo obtener el número de serie. Saltando configuración.")
-            canal.close()
+        serial_obtenido = obtener_numero_de_serie(conexion_activa)
+        if not serial_obtenido:
+            print("Fallo al obtener el número de serie")
+            conexion_activa.close()
             return False
 
-        if alias[1:] != num_serie:
-            print(f"⚠ La serie del dispositivo ({num_serie}) no coincide con la del CSV ({alias[1:]}). Saltando configuración.")
-            canal.close()
+        if nombre_host[1:] != serial_obtenido:
+            print(f"Número de serie: ({serial_obtenido}) no coincide con el del archivo ({nombre_host[1:]})")
+            conexion_activa.close()
             return False
 
-        ejecutar_comando(canal, "enable")
-        ejecutar_comando(canal, "configure terminal")
-        ejecutar_comando(canal, f"hostname {alias}")
-        ejecutar_comando(canal, f"username {usuario} privilege 15 secret {clave}")
-        ejecutar_comando(canal, f"ip domain-name {dominio}")
-        ejecutar_comando(canal, "crypto key generate rsa modulus 1024", pausa=3)
-        ejecutar_comando(canal, "line vty 0 4")
-        ejecutar_comando(canal, "login local")
-        ejecutar_comando(canal, "transport input ssh")
-        ejecutar_comando(canal, "transport output ssh")
-        ejecutar_comando(canal, "exit")
-        ejecutar_comando(canal, "ip ssh version 2")
-        ejecutar_comando(canal, "end")
-        ejecutar_comando(canal, "write memory", pausa=2)
+        enviar_comando_al_equipo(conexion_activa, "enable")
+        enviar_comando_al_equipo(conexion_activa, "configure terminal")
+        enviar_comando_al_equipo(conexion_activa, f"hostname {nombre_host}")
+        enviar_comando_al_equipo(conexion_activa, f"username {nombre_usuario} privilege 15 secret {clave_secreta}")
+        enviar_comando_al_equipo(conexion_activa, f"ip domain-name {nombre_dominio}")
+        enviar_comando_al_equipo(conexion_activa, "crypto key generate rsa modulus 1024", retraso=3)
+        enviar_comando_al_equipo(conexion_activa, "line vty 0 4")
+        enviar_comando_al_equipo(conexion_activa, "login local")
+        enviar_comando_al_equipo(conexion_activa, "transport input ssh")
+        enviar_comando_al_equipo(conexion_activa, "transport output ssh")
+        enviar_comando_al_equipo(conexion_activa, "exit")
+        enviar_comando_al_equipo(conexion_activa, "ip ssh version 2")
+        enviar_comando_al_equipo(conexion_activa, "end")
+        enviar_comando_al_equipo(conexion_activa, "write memory", retraso=2)
 
-        print(f"✅ Configuración aplicada correctamente en {alias}.")
-        canal.close()
+        print(f"Se ha aplicado la configuración en {nombre_host}.")
+        conexion_activa.close()
         return True
 
-    except Exception as e:
-        print(f"❌ Error al configurar el dispositivo {alias}: {e}")
+    except Exception as excepcion_ocurrida:
+        print(f"No se pudo configurar el dispositivo {nombre_host}: {excepcion_ocurrida}")
         return False
 
-# 🔹 Menú principal
-def ver_opciones():
-    limpiar_consola()
-    print("=== MENÚ PRINCIPAL ===")
-    print("1. Mandar comandos manualmente")
-    print("2. Hacer configuraciones iniciales desde CSV")
+def presentar_menu_principal():
+    limpiar_pantalla_consola()
+    print("=== MENÚ ===")
+    print("1. Comandos manuales")
+    print("2. Configuraciones")
     print("0. Salir")
 
-# 🔹 Menú de comandos manuales
-def modo_interactivo():
-    puerto_usr = input("🔌 Ingresa el puerto serial (ej. COM3): ")
+def menu_de_comandos_manuales():
+    puerto_de_conexion = input("¿En que puerto estas conectado? -> ")
     try:
-        sesion = serial.Serial(puerto_usr, baudrate=9600, timeout=1)
+        sesion_serial = serial.Serial(puerto_de_conexion, baudrate=9600, timeout=1)
         time.sleep(2)
-        print(f"\n✅ Conectado al dispositivo en {puerto_usr}")
+        print(f"\nConectado en {puerto_de_conexion}")
         while True:
-            cmd_linea = input("📥 Ingresa el comando (o 'exit' para salir): ")
-            if cmd_linea.lower() == "exit":
+            comando_ingresado = input("Ingresa el comando (o 'exit' para salir): ")
+            if comando_ingresado.lower() == "exit":
                 break
-            respuesta = ejecutar_comando(sesion, cmd_linea, pausa=2)
-            print(f"\n📤 Respuesta:\n{respuesta}")
-        sesion.close()
-    except Exception as e:
-        print(f"❌ Error al conectar: {e}")
-    input("Presione ENTER para volver al menú...")
+            salida_del_comando = enviar_comando_al_equipo(sesion_serial, comando_ingresado, retraso=2)
+            print(f"\nSalida:\n{salida_del_comando}")
+        sesion_serial.close()
+    except Exception as error_general:
+        print(f"No se pudo conectar: {error_general}")
+    input("ENTER para volver...")
 
-# 🔹 Flujo de configuración inicial
-def proceso_desde_csv():
-    limpiar_consola()
+def flujo_de_configuracion_con_csv():
+    limpiar_pantalla_consola()
     try:
-        # Ruta del archivo CSV actualizada para el nuevo usuario
-        ruta_archivo = r"C:\Users\lucer\OneDrive\Documentos\Gip\Data.csv"
-        tabla_datos = pd.read_csv(ruta_archivo)
-        
+        ruta_archivo = r"C:\Users\lucer\OneDrive\Documentos\Gip\DATA.csv"
+        dataframe_dispositivos = pd.read_csv(ruta_archivo)
+
     except FileNotFoundError:
-        print("\n❌ ERROR: No se encontró el archivo 'Data.csv' en la ruta especificada.")
+        print("\nNo se encontró el archivo en la ruta especificada.")
         print(f"Asegúrate de que el archivo exista en: {ruta_archivo}")
         input("Presione ENTER para volver al menú...")
         return
+        
+    print("\nArchivo:")
+    print(dataframe_dispositivos)
 
-    print("\n📂 Dispositivos encontrados en el archivo:")
-    print(tabla_datos)
+    NombresDeHostGenerados = [str(d).strip()[0] + str(s).strip() for d, s in zip(dataframe_dispositivos['Device'], dataframe_dispositivos['Serie'])]
+    lista_completa_dispositivos = [(p, h, u, pas, dom) for p, u, pas, dom, h in zip(dataframe_dispositivos['Port'], dataframe_dispositivos['User'], dataframe_dispositivos['Password'], dataframe_dispositivos['Ip-domain'], NombresDeHostGenerados)]
 
-    Aliases = [str(d).strip()[0] + str(s).strip() for d, s in zip(tabla_datos['Device'], tabla_datos['Serie'])]
-    cola_de_trabajo = [(p, h, u, pas, dom) for p, u, pas, dom, h in zip(tabla_datos['Port'], tabla_datos['User'], tabla_datos['Password'], tabla_datos['Ip-domain'], Aliases)]
-
-    print("\n📋 Lista de dispositivos y sus configuraciones:")
-    for tarea in cola_de_trabajo:
-        print(tarea)
+    print("\nDispositivos y configuraciones:")
+    for elemento in lista_completa_dispositivos:
+        print(elemento)
     input("Presione ENTER para continuar...")
 
-    equipos_listos = []
-    equipos_fallidos = []
+    dispositivos_configurados_ok = []
+    dispositivos_omitidos = []
 
-    for contador, (p, h, u, pas, dom) in enumerate(cola_de_trabajo, start=1):
-        limpiar_consola()
-        print(f"\n➡ Conecte ahora el dispositivo {contador}: {h} en el puerto {p}")
+    for indice, (puerto, host, usr, pwd, dominio_ip) in enumerate(lista_completa_dispositivos, start=1):
+        limpiar_pantalla_consola()
+        print(f"\nConecte ahora el dispositivo {indice}: {host} en el puerto {puerto}")
         input("Presione ENTER cuando el dispositivo esté conectado...")
-        resultado_ok = aplicar_config(p, h, u, pas, dom)
-        if resultado_ok:
-            equipos_listos.append(h)
+        fue_exitoso = configurar_dispositivo_individual(puerto, host, usr, pwd, dominio_ip)
+        if fue_exitoso:
+            dispositivos_configurados_ok.append(host)
         else:
-            equipos_fallidos.append(h)
+            dispositivos_omitidos.append(host)
         print("=================================================")
         input("Presione ENTER para continuar...")
 
-    limpiar_consola()
-    print("📊 Resumen de la configuración:")
-    print(f"✅ Dispositivos configurados ({len(equipos_listos)}): {equipos_listos}")
-    print(f"⚠ Dispositivos saltados ({len(equipos_fallidos)}): {equipos_fallidos}")
-    input("Presione ENTER para volver al menú...")
-
-# 🔹 Ejecutar menú
 if __name__ == "__main__":
     while True:
-        ver_opciones()
-        eleccion = input("Selecciona una opción: ")
-        if eleccion == "1":
-            modo_interactivo()
-        elif eleccion == "2":
-            proceso_desde_csv()
-        elif eleccion == "0":
-            print("👋 Saliendo del programa...")
+        presentar_menu_principal()
+        opcion_elegida = input("Selecciona una opción: ")
+        if opcion_elegida == "1":
+            menu_de_comandos_manuales()
+        elif opcion_elegida == "2":
+            flujo_de_configuracion_con_csv()
+        elif opcion_elegida == "0":
+            print("Saliendo del programa...")
             break
         else:
-            print("❌ Opción inválida.")
+            print("Opción inválida.")
             input("Presione ENTER para continuar...")
