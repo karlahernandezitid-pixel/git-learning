@@ -1,2 +1,3 @@
 ﻿Serie,Port,Device,User,Password,Ip-domain
-FTX144582PH,COM12,Router1,Cisco,Cisco,cisco.local
+FTX144582PH,COM13,Router1,Cisco,Cisco,cisco.local
+FTX1225207P,COM13,Router-FTX1225207P,Cisco,Cisco,cisco.local
